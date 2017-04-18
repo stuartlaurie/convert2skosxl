@@ -43,9 +43,11 @@ our %property_types = (
 	'scope note' => 'http://www.w3.org/2004/02/skos/core#scopeNote',
 );
 
+our %structure_lookup;
+$structure_lookup{class}{Concept}="http://www.w3.org/2004/02/skos/core#Concept";
+
 our %reverse_lookup;
 our %duplicate_labels;
-our %structure_lookup;
 our %model_stats;
 
 ##****************************************************************************************************************************************************************
@@ -183,6 +185,11 @@ sub structure_addrelationshiptype{
 	elsif ($type eq "altLabel"){
 		$structure{relationship}{$URI}{type}="http://www.w3.org/2008/05/skos-xl#altLabel";
 		$structure{relationship}{$URI}{range}="http://www.w3.org/2008/05/skos-xl#Label";
+	}	
+	elsif ($type eq "labelRelation"){
+		$structure{relationship}{$URI}{type}="http://www.w3.org/2008/05/skos-xl#skosxl:LabelRelation";
+		$structure{relationship}{$URI}{range}="http://www.w3.org/2008/05/skos-xl#Label";
+		$structure{relationship}{$URI}{domain}="http://www.w3.org/2008/05/skos-xl#Label";
 	}
 	else{
 		warn "Relationship Type not valid, use 'related' or 'altLabel'\n"; 
@@ -321,10 +328,12 @@ sub add_concept{
 
 #####################################################################################################
 ## Routine to add labels
+## uri_suffix can be used when adding labels that also have IDs that need displaying in the model 
+## (basically first order NPTs)
 #####################################################################################################
 
 sub add_label{
-	my ($concept_id,$term_label,$language,$label_type,$label_id)=@_;
+	my ($concept_id,$term_label,$language,$label_type,$label_id,$uri_suffix)=@_;
 	my $add_label=1;
   
 	if ($debug_level eq 1){ warn "\nTrying to add label: $term_label, Language: $language, label type: $label_type\n"; }
@@ -355,10 +364,10 @@ sub add_label{
 	if ($add_label eq 1){
 		
 		if ($label_id eq ""){
-			$label_id=clean_altlabel_uri($concept_id,$term_label,$language);
+			$label_id=clean_altlabel_uri($concept_id,$term_label,$language,$uri_suffix);
 		}
 		else{
-			$label_id=clean_altlabel_uri($concept_id,$label_id,$language)
+			$label_id=clean_altlabel_uri($concept_id,$label_id,$language,$uri_suffix)
 		}
 
 		$labels{$label_id}{name}=$term_label;
@@ -379,6 +388,8 @@ sub add_label{
 		$model_stats{Labels}++;
 	}
   
+	return $label_id;
+  
 }
 
 
@@ -391,7 +402,7 @@ sub add_relationship{
 
     my ($source_term_id, $target_term_id, $relationship_type) = @_;
 
-    #if ($debug_level eq 1){ warn "\nTrying to create relationship from $source_term_id ($terms{concepts}{$source_term_id}{name}) to $target_term_id ($terms{concepts}{$target_term_id}{name}) using $relationship_type\n"; }
+   # if ($debug_level eq 1){ warn "\nTrying to create relationship from $source_term_id ($terms{concepts}{$source_term_id}{name}) to $target_term_id ($terms{concepts}{$target_term_id}{name}) using $relationship_type\n"; }
 
 	## check label type
 	unless (exists $property_types{$relationship_type}){
@@ -490,7 +501,6 @@ sub clean_term{
 	$dirty_term =~ s/'/&apos;/g;   
 	$dirty_term =~ s/"/&quot;/g; 
    }
-   
    return $dirty_term;
 }
 
@@ -502,11 +512,18 @@ sub clean_uri{
 }
 
 sub clean_altlabel_uri{
-   my ($base_uri,$name,$language)=@_;
-   $name =~ s/ /-/g;
-   $name =~ s/\W//g;
-   my $URI=$base_uri."/".$name."_".$language;
-   return $URI;
+	my ($base_uri,$name,$language,$uri_suffix)=@_;
+	my $URI="";
+	
+	$name =~ s/ /-/g;
+	$name =~ s/\W//g;
+	if ($uri_suffix ne ""){
+		$URI=$base_uri."/".$uri_suffix."/".$name."_".$language;
+	}
+	else{
+		$URI=$base_uri."/".$name."_".$language;
+	}
+	return $URI;
 }
 
 sub check_length{
@@ -707,6 +724,12 @@ sub print_data{
 		print OUT qq(<$uri>\n);
 		print OUT qq(  rdf:type <http://www.w3.org/2008/05/skos-xl#Label> ;\n);
 		print OUT qq(  <http://www.w3.org/2008/05/skos-xl#literalForm> "$labels{$uri}{name}"\@$labels{$uri}{language} ;\n);
+		foreach my $relationship_type (sort {$a <=> $b} keys %{$relationships{$uri}{relationship}}){
+			my @ids=split(/;/,$relationships{$uri}{relationship}{$relationship_type}{target_id});
+			foreach my $related_id (@ids){
+				print OUT qq(  <$relationship_type> <$related_id> ;\n);
+			}	  
+		}
 		print OUT qq(.\n\n);
 	}
   
